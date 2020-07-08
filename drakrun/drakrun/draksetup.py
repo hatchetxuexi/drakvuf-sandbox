@@ -16,6 +16,7 @@ from shutil import copyfile
 import requests
 from drakrun.drakpdb import fetch_pdb, make_pdb_profile, dll_file_list, pdb_guid
 from requests import RequestException
+from drakrun.storage import get_storage_backend
 
 logging.basicConfig(level=logging.DEBUG,
                     format='[%(asctime)s][%(levelname)s] %(message)s',
@@ -25,8 +26,6 @@ logging.basicConfig(level=logging.DEBUG,
 LIB_DIR = os.path.dirname(os.path.realpath(__file__))
 ETC_DIR = os.path.dirname(os.path.realpath(__file__))
 MAIN_DIR = os.path.dirname(os.path.realpath(__file__))
-
-FNULL = open(os.devnull, 'w')
 
 
 def find_default_interface():
@@ -145,54 +144,8 @@ def install(storage_backend, disk_size, iso_path, zfs_tank_name, max_vms, unatte
 
     generate_vm_conf(install_info, 0)
 
-    if storage_backend == "qcow2":
-        try:
-            subprocess.check_output("qemu-img --version", shell=True)
-        except subprocess.CalledProcessError:
-            logging.exception("Failed to determine qemu-img version. Make sure you have qemu-utils installed.")
-            return
-
-        try:
-            subprocess.check_output(' '.join([
-                "qemu-img",
-                "create",
-                "-f",
-                "qcow2",
-                os.path.join(LIB_DIR, "volumes/vm-0.img"),
-                shlex.quote(disk_size)
-            ]), shell=True)
-        except subprocess.CalledProcessError:
-            logging.exception("Failed to create a new volume using qemu-img.")
-            return
-    elif storage_backend == "zfs":
-        try:
-            subprocess.check_output("zfs -?", shell=True)
-        except subprocess.CalledProcessError:
-            logging.exception("Failed to execute zfs command. Make sure you have ZFS support installed.")
-            return
-
-        vm0_vol = shlex.quote(os.path.join(zfs_tank_name, 'vm-0'))
-
-        try:
-            subprocess.check_output(f"zfs destroy -Rfr {vm0_vol}", stderr=subprocess.STDOUT, shell=True)
-        except subprocess.CalledProcessError as e:
-            if b'dataset does not exist' not in e.output:
-                logging.exception(f"Failed to destroy the existing ZFS volume {vm0_vol}.")
-                return
-
-        try:
-            subprocess.check_output(' '.join([
-                "zfs",
-                "create",
-                "-V",
-                shlex.quote(disk_size),
-                shlex.quote(os.path.join(zfs_tank_name, 'vm-0'))
-            ]), shell=True)
-        except subprocess.CalledProcessError:
-            logging.exception("Failed to create a new volume using zfs create.")
-            return
-    else:
-        raise RuntimeError('Unknown storage backend type.')
+    backend = get_storage_backend(storage_backend, install_info)
+    backend.initialize_vm0_volume(disk_size)
 
     try:
         subprocess.check_output("brctl show", shell=True)
@@ -401,11 +354,11 @@ def generate_profiles(no_report=False, generate_usermode=True):
     logging.info("Saving VM snapshot...")
     subprocess.check_output('xl save vm-0 ' + os.path.join(LIB_DIR, "volumes", "snapshot.sav"), shell=True)
 
+    storage_backend = get_storage_backend(install_info)
+    storage_backend.snapshot_vm0_volume()
+
     logging.info("Snapshot was saved succesfully.")
 
-    if install_info["storage_backend"] == 'zfs':
-        snap_name = shlex.quote(os.path.join(install_info["zfs_tank_name"], 'vm-0@booted'))
-        subprocess.check_output(f'zfs snapshot {snap_name}', shell=True)
 
     if generate_usermode:
         create_rekall_profiles(install_info)
@@ -450,22 +403,15 @@ def reenable_services():
 
 
 def generate_vm_conf(install_info, vm_id):
-    iso_path = install_info['iso_path']
-    storage_backend = install_info['storage_backend']
-    zfs_tank_name = install_info['zfs_tank_name']
-
     with open(os.path.join(ETC_DIR, 'scripts/cfg.template'), 'r') as f:
         template = f.read()
 
+    storage_backend = get_storage_backend(install_info)
+
     disks = []
+    disks.append(storage_backend.get_vm_disk_path(vm_id))
 
-    if storage_backend == "zfs":
-        disks.append('phy:/dev/zvol/{tank_name}/vm-{vm_id},hda,w'.format(tank_name=zfs_tank_name, vm_id=vm_id))
-    elif storage_backend == "qcow2":
-        disks.append('tap:qcow2:{main_dir}/volumes/vm-{vm_id}.img,xvda,w'.format(main_dir=LIB_DIR, vm_id=vm_id))
-    else:
-        raise RuntimeError('Unknown storage backend.')
-
+    iso_path = install_info['iso_path']
     disks.append('file:{iso},hdc:cdrom,r'.format(iso=os.path.abspath(iso_path)))
 
     if install_info['enable_unattended']:
