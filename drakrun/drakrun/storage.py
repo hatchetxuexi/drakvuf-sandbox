@@ -1,3 +1,4 @@
+import contextlib
 import logging
 import subprocess
 import shlex
@@ -41,9 +42,17 @@ class StorageBackendBase:
         """ Rolls back changes and prepares fresh storage for new run of this VM """
         raise NotImplementedError
 
+    def vm0_as_block(self):
+        """ Mounts vm-0 volume as block device """
+        raise NotImplementedError
+
 
 class ZfsStorageBackend(StorageBackendBase):
-    def __init__(self):
+    def __init__(self, install_info: Dict[str, Any]):
+        super().__init__(install_info)
+
+        self.zfs_tank_name = install_info["zfs_tank_name"]
+
         self.check_tools()
 
     def check_tools(self):
@@ -56,7 +65,7 @@ class ZfsStorageBackend(StorageBackendBase):
             return
 
     def initialize_vm0_volume(self, disk_size):
-        vm0_vol = shlex.quote(os.path.join(zfs_tank_name, "vm-0"))
+        vm0_vol = shlex.quote(os.path.join(self.zfs_tank_name, "vm-0"))
         try:
             subprocess.check_output(
                 f"zfs destroy -Rfr {vm0_vol}", stderr=subprocess.STDOUT, shell=True
@@ -74,7 +83,7 @@ class ZfsStorageBackend(StorageBackendBase):
                         "create",
                         "-V",
                         shlex.quote(disk_size),
-                        shlex.quote(os.path.join(zfs_tank_name, "vm-0")),
+                        shlex.quote(os.path.join(self.zfs_tank_name, "vm-0")),
                     ]
                 ),
                 shell=True,
@@ -84,20 +93,15 @@ class ZfsStorageBackend(StorageBackendBase):
             return
 
     def snapshot_vm0_volume(self):
-        snap_name = shlex.quote(
-            os.path.join(install_info["zfs_tank_name"], "vm-0@booted")
-        )
+        snap_name = shlex.quote(os.path.join(self.zfs_tank_name, "vm-0@booted"))
         subprocess.check_output(f"zfs snapshot {snap_name}", shell=True)
 
     def get_vm_disk_path(self, vm_id: int) -> str:
-        zfs_tank_name = self._install_info["zfs_tank_name"]
-        return f"phy:/dev/zvol/{zfs_tank_name}/vm-{vm_id},hda,w"
+        return f"phy:/dev/zvol/{self.zfs_tank_name}/vm-{vm_id},hda,w"
 
     def rollback_vm_storage(self, vm_id: int):
-        vm_zvol = os.path.join(
-            "/dev/zvol", install_info["zfs_tank_name"], f"vm-{vm_id}"
-        )
-        vm_snap = os.path.join(install_info["zfs_tank_name"], f"vm-{vm_id}@booted")
+        vm_zvol = os.path.join("/dev/zvol", self.zfs_tank_name, f"vm-{vm_id}")
+        vm_snap = os.path.join(self.zfs_tank_name, f"vm-{vm_id}@booted")
 
         if not os.path.exists(vm_zvol):
             subprocess.run(
@@ -105,8 +109,8 @@ class ZfsStorageBackend(StorageBackendBase):
                     "zfs",
                     "clone",
                     "-p",
-                    os.path.join(install_info["zfs_tank_name"], "vm-0@booted"),
-                    os.path.join(install_info["zfs_tank_name"], f"vm-{vm_id}"),
+                    os.path.join(self.zfs_tank_name, "vm-0@booted"),
+                    os.path.join(self.zfs_tank_name, f"vm-{vm_id}"),
                 ],
                 check=True,
             )
@@ -125,6 +129,35 @@ class ZfsStorageBackend(StorageBackendBase):
             subprocess.run(["zfs", "snapshot", vm_snap], check=True)
 
         subprocess.run(["zfs", "rollback", vm_snap], check=True)
+
+    @contextlib.contextmanager
+    def vm0_as_block(self):
+        # workaround for not being able to mount a snapshot
+        base_snap = shlex.quote(os.path.join(self.zfs_tank_name, "vm-0@booted"))
+        tmp_snap = shlex.quote(os.path.join(self.zfs_tank_name, "tmp"))
+        try:
+            subprocess.check_output(f"zfs clone {base_snap} {tmp_snap}", shell=True)
+        except subprocess.CalledProcessError:
+            logging.warning(
+                "Failed to clone temporary zfs snapshot. Aborting generation of usermode rekall profiles"
+            )
+            return
+
+        # we mount 2nd partition, as 1st partition is windows boot related and 2nd partition is C:\\
+        volume_path = os.path.join(
+            "/", "dev", "zvol", self.zfs_tank_name, "tmp-part2"
+        )
+        # Wait for 60s for the volume to appear in /dev/zvol/...
+        for _ in range(60):
+            if os.path.exists(volume_path):
+                break
+            time.sleep(1.0)
+        else:
+            raise RuntimeError(f"ZFS volume not available at {volume_path}")
+
+        yield volume_path
+
+        subprocess.check_output(f"zfs destroy {tmp_snap}", shell=True)
 
 
 class Qcow2StorageBackend(StorageBackendBase):
@@ -186,6 +219,26 @@ class Qcow2StorageBackend(StorageBackendBase):
             ],
             check=True,
         )
+
+    @contextlib.contextmanager
+    def vm0_as_block(self):
+        try:
+            subprocess.check_output("modprobe nbd", shell=True)
+        except subprocess.CalledProcessError:
+            logging.warning("Failed to load nbd kernel module. Aborting generation of usermode rekall profiles")
+            return
+
+        # TODO: this assumes /dev/nbd0 is free
+        try:
+            subprocess.check_output(f"qemu-nbd -c /dev/nbd0 --read-only {os.path.join(LIB_DIR, 'volumes', 'vm-0.img')}", shell=True)
+        except subprocess.CalledProcessError:
+            logging.warning("Failed to load quemu image as nbd0. Aborting generation of usermode rekall profiles")
+            return
+
+        # we mount 2nd partition, as 1st partition is windows boot related and 2nd partition is C:\\
+        yield "/dev/nbd0p2"
+
+        subprocess.check_output('qemu-nbd --disconnect /dev/nbd0', shell=True)
 
 
 def get_storage_backend(install_info: Dict[str, Any]) -> StorageBackendBase:

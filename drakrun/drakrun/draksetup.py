@@ -202,96 +202,43 @@ def send_usage_report(report):
 def create_rekall_profiles(install_info):
     profiles_path = os.path.join(LIB_DIR, "profiles")
 
+
+    storage_backend = get_storage_backend(install_info)
+    with storage_backend.vm0_as_block() as block_device:
     with tempfile.TemporaryDirectory() as mount_path:
-        # we mount 2nd partition, as 1st partition is windows boot related and 2nd partition is C:\\
-
-        if install_info["storage_backend"] == "zfs":
-            # workaround for not being able to mount a snapshot
-            base_snap = shlex.quote(os.path.join(install_info["zfs_tank_name"], 'vm-0@booted'))
-            tmp_snap = shlex.quote(os.path.join(install_info["zfs_tank_name"], 'tmp'))
             try:
-                subprocess.check_output(f'zfs clone {base_snap} {tmp_snap}', shell=True)
+                subprocess.check_output(f"mount -t ntfs -o ro {block_device} {mount_path}", shell=True)
             except subprocess.CalledProcessError:
-                logging.warning("Failed to clone temporary zfs snapshot. Aborting generation of usermode rekall profiles")
+                logging.warning(f"Failed to mount {block_device} as NTFS. Aborting generation of usermode rekall profiles")
                 return
 
-            volume_path = os.path.join("/", "dev", "zvol", install_info["zfs_tank_name"], "tmp-part2")
-            # Wait for 60s for the volume to appear in /dev/zvol/...
-            for _ in range(60):
-                if os.path.exists(volume_path):
-                    break
-                time.sleep(1.0)
-            else:
-                raise RuntimeError(f"ZFS volume not available at {volume_path}")
-
-            try:
-                # We have to wait for a moment for zvol to appear
-                time.sleep(1.0)
-                tmp_mount = shlex.quote(volume_path)
-                subprocess.check_output(f'mount -t ntfs -o ro {tmp_mount} {mount_path}', shell=True)
-            except subprocess.CalledProcessError:
-                logging.warning("Failed to mount temporary zfs snapshot. Aborting generation of usermode rekall profiles")
+            for file in dll_file_list:
                 try:
-                    subprocess.check_output(f'zfs destroy {tmp_snap}', shell=True)
-                except subprocess.CalledProcessError:
-                    logging.exception('Failed to cleanup after zfs tmp snapshot')
-                return
-        else:  # qcow2
-            try:
-                subprocess.check_output("modprobe nbd", shell=True)
-            except subprocess.CalledProcessError:
-                logging.warning("Failed to load nbd kernel module. Aborting generation of usermode rekall profiles")
-                return
+                    logging.info(f"Fetching rekall profile for {file.path}")
+                    local_dll_path = os.path.join(profiles_path, file.dest)
 
-            # TODO: this assumes /dev/nbd0 is free
-            try:
-                subprocess.check_output(f"qemu-nbd -c /dev/nbd0 --read-only {os.path.join(LIB_DIR, 'volumes', 'vm-0.img')}", shell=True)
-            except subprocess.CalledProcessError:
-                logging.warning("Failed to load quemu image as nbd0. Aborting generation of usermode rekall profiles")
-                return
+                    copyfile(os.path.join(mount_path, file.path), local_dll_path)
+                    guid = pdb_guid(local_dll_path)
+                    tmp = fetch_pdb(guid["filename"], guid["GUID"], profiles_path)
 
-            try:
-                subprocess.check_output(f"mount -t ntfs -o ro /dev/nbd0p2 {mount_path}", shell=True)
-            except subprocess.CalledProcessError:
-                logging.warning("Failed to mount nbd0p2. Aborting generation of usermode rekall profiles")
-                try:
-                    subprocess.check_output('qemu-nbd --disconnect /dev/nbd0', shell=True)
-                except subprocess.CalledProcessError:
-                    logging.exception('Failed to cleanup after nbd0')
-                return
+                    logging.debug("Parsing PDB into JSON profile...")
+                    profile = make_pdb_profile(tmp)
+                    with open(os.path.join(profiles_path, f"{file.dest}.json"), 'w') as f:
+                        f.write(profile)
+                except FileNotFoundError:
+                    logging.warning(f"Failed to copy file {file.path}, skipping...")
+                except RuntimeError:
+                    logging.warning(f"Failed to fetch profile for {file.path}, skipping...")
+                except Exception:
+                    logging.warning(f"Unexpected exception while creating rekall profile for {file.path}, skipping...")
+                finally:
+                    if os.path.exists(local_dll_path):
+                        os.remove(local_dll_path)
+                    if os.path.exists(os.path.join(profiles_path, tmp)):
+                        os.remove(os.path.join(profiles_path, tmp))
 
-        for file in dll_file_list:
-            try:
-                logging.info(f"Fetching rekall profile for {file.path}")
-                local_dll_path = os.path.join(profiles_path, file.dest)
-
-                copyfile(os.path.join(mount_path, file.path), local_dll_path)
-                guid = pdb_guid(local_dll_path)
-                tmp = fetch_pdb(guid["filename"], guid["GUID"], profiles_path)
-
-                logging.debug("Parsing PDB into JSON profile...")
-                profile = make_pdb_profile(tmp)
-                with open(os.path.join(profiles_path, f"{file.dest}.json"), 'w') as f:
-                    f.write(profile)
-            except FileNotFoundError:
-                logging.warning(f"Failed to copy file {file.path}, skipping...")
-            except RuntimeError:
-                logging.warning(f"Failed to fetch profile for {file.path}, skipping...")
-            except Exception:
-                logging.warning(f"Unexpected exception while creating rekall profile for {file.path}, skipping...")
-            finally:
-                if os.path.exists(local_dll_path):
-                    os.remove(local_dll_path)
-                if os.path.exists(os.path.join(profiles_path, tmp)):
-                    os.remove(os.path.join(profiles_path, tmp))
-
-        # cleanup
-        subprocess.check_output(f'umount {mount_path}', shell=True)
-
-    if install_info["storage_backend"] == "zfs":
-        subprocess.check_output(f'zfs destroy {tmp_snap}', shell=True)
-    else:  # qcow2
-        subprocess.check_output('qemu-nbd --disconnect /dev/nbd0', shell=True)
+            # cleanup
+            subprocess.check_output(f'umount {mount_path}', shell=True)
 
 
 def generate_profiles(no_report=False, generate_usermode=True):
