@@ -1,9 +1,11 @@
 import contextlib
 import logging
+import os
 import subprocess
+import time
 import shlex
 
-from typing import Any
+from typing import Dict, Any, ContextManager, Generator
 
 
 class StorageBackendBase:
@@ -24,14 +26,14 @@ class StorageBackendBase:
         self._install_info = install_info
 
     def initialize_vm0_volume(self, disk_size: str):
-        """Create base volume for VM-0 with given size
+        """Create base volume for vm-0 with given size
 
         disk_size - string representing volume size with M/G/T suffix, eg. 100G
         """
         raise NotImplementedError
 
     def snapshot_vm0_volume(self):
-        """ Save or snapshot base VM-0 volume for later use by other VMs """
+        """ Saves or snapshots base vm-0 volume for later use by other VMs """
         raise NotImplementedError
 
     def get_vm_disk_path(self, vm_id: int) -> str:
@@ -42,17 +44,19 @@ class StorageBackendBase:
         """ Rolls back changes and prepares fresh storage for new run of this VM """
         raise NotImplementedError
 
-    def vm0_as_block(self):
-        """ Mounts vm-0 volume as block device """
+    def vm0_root_as_block(self) -> ContextManager[str]:
+        """ Mounts vm-0 root partition as block device
+        
+        Mounts second partition (C:) on the volume as block device.
+        This assumes that first partition is an EFI ESP used for booting.
+        """
         raise NotImplementedError
 
 
 class ZfsStorageBackend(StorageBackendBase):
     def __init__(self, install_info: Dict[str, Any]):
         super().__init__(install_info)
-
         self.zfs_tank_name = install_info["zfs_tank_name"]
-
         self.check_tools()
 
     def check_tools(self):
@@ -64,7 +68,7 @@ class ZfsStorageBackend(StorageBackendBase):
             )
             return
 
-    def initialize_vm0_volume(self, disk_size):
+    def initialize_vm0_volume(self, disk_size: str):
         vm0_vol = shlex.quote(os.path.join(self.zfs_tank_name, "vm-0"))
         try:
             subprocess.check_output(
@@ -131,7 +135,7 @@ class ZfsStorageBackend(StorageBackendBase):
         subprocess.run(["zfs", "rollback", vm_snap], check=True)
 
     @contextlib.contextmanager
-    def vm0_as_block(self):
+    def vm0_as_block(self) -> Generator[str, None, None]:
         # workaround for not being able to mount a snapshot
         base_snap = shlex.quote(os.path.join(self.zfs_tank_name, "vm-0@booted"))
         tmp_snap = shlex.quote(os.path.join(self.zfs_tank_name, "tmp"))
@@ -143,10 +147,7 @@ class ZfsStorageBackend(StorageBackendBase):
             )
             return
 
-        # we mount 2nd partition, as 1st partition is windows boot related and 2nd partition is C:\\
-        volume_path = os.path.join(
-            "/", "dev", "zvol", self.zfs_tank_name, "tmp-part2"
-        )
+        volume_path = os.path.join("/", "dev", "zvol", self.zfs_tank_name, "tmp-part2")
         # Wait for 60s for the volume to appear in /dev/zvol/...
         for _ in range(60):
             if os.path.exists(volume_path):
@@ -221,24 +222,31 @@ class Qcow2StorageBackend(StorageBackendBase):
         )
 
     @contextlib.contextmanager
-    def vm0_as_block(self):
+    def vm0_as_block(self) -> Generator[str, None, None]:
         try:
             subprocess.check_output("modprobe nbd", shell=True)
         except subprocess.CalledProcessError:
-            logging.warning("Failed to load nbd kernel module. Aborting generation of usermode rekall profiles")
+            logging.warning(
+                "Failed to load nbd kernel module. Aborting generation of usermode rekall profiles"
+            )
             return
 
         # TODO: this assumes /dev/nbd0 is free
         try:
-            subprocess.check_output(f"qemu-nbd -c /dev/nbd0 --read-only {os.path.join(LIB_DIR, 'volumes', 'vm-0.img')}", shell=True)
+            subprocess.check_output(
+                f"qemu-nbd -c /dev/nbd0 --read-only {os.path.join(LIB_DIR, 'volumes', 'vm-0.img')}",
+                shell=True,
+            )
         except subprocess.CalledProcessError:
-            logging.warning("Failed to load quemu image as nbd0. Aborting generation of usermode rekall profiles")
+            logging.warning(
+                "Failed to load quemu image as nbd0. Aborting generation of usermode rekall profiles"
+            )
             return
 
         # we mount 2nd partition, as 1st partition is windows boot related and 2nd partition is C:\\
         yield "/dev/nbd0p2"
 
-        subprocess.check_output('qemu-nbd --disconnect /dev/nbd0', shell=True)
+        subprocess.check_output("qemu-nbd --disconnect /dev/nbd0", shell=True)
 
 
 def get_storage_backend(install_info: Dict[str, Any]) -> StorageBackendBase:

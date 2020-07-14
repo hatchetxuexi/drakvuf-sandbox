@@ -204,8 +204,8 @@ def create_rekall_profiles(install_info):
 
 
     storage_backend = get_storage_backend(install_info)
-    with storage_backend.vm0_as_block() as block_device:
-    with tempfile.TemporaryDirectory() as mount_path:
+    with storage_backend.vm0_as_block() as block_device, \
+         tempfile.TemporaryDirectory() as mount_path:
             try:
                 subprocess.check_output(f"mount -t ntfs -o ro {block_device} {mount_path}", shell=True)
             except subprocess.CalledProcessError:
