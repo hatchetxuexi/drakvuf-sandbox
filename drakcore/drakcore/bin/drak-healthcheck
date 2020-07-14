@@ -3,6 +3,8 @@ import subprocess
 import json
 import colorama
 
+from drakrun.config import install_info
+
 def get_service_info(service):
     lines = subprocess.check_output(["systemctl", "show", service]).decode().splitlines()
     return dict(map(lambda l: l.split("=", maxsplit=1), lines))
@@ -12,13 +14,6 @@ def service_runnning(info):
     is_active = info["ActiveState"] == "active"
     is_running = info["SubState"] == "running"
     return all((is_loaded, is_active, is_running))
-
-def get_install_info():
-    try:
-        with open("/etc/drakrun/install.json") as conf:
-            return json.load(conf)
-    except OSError:
-        return None
 
 def print_status(name, is_ok):
     if is_ok:
@@ -43,15 +38,9 @@ def main():
         info = get_service_info(service)
         print_status(service, service_runnning(info))
 
-    install_info = get_install_info()
-    if not install_info:
-        print("install.json not found")
-        return
-
     print()
-    max_vms = install_info["max_vms"]
     print("Checking worker status...")
-    for vm in range(max_vms):
+    for vm in range(install_info.max_vms):
         service = f"drakrun@{vm + 1}.service"
         info = get_service_info(service)
         print_status(service, service_runnning(info))

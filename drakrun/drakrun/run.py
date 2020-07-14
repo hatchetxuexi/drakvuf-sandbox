@@ -6,15 +6,9 @@ import subprocess
 import time
 import json
 
-from drakrun.genmac import gen_mac, print_mac
-
-LIB_DIR = os.path.dirname(os.path.realpath(__file__))
-ETC_DIR = os.path.dirname(os.path.realpath(__file__))
-
+from drakrun.config import install_info, LIB_DIR
 
 def run_vm(vm_id):
-    with open(os.path.join(ETC_DIR, "install.json"), "rb") as f:
-        install_info = json.loads(f.read())
 
     try:
         subprocess.check_output(["xl", "destroy", "vm-{vm_id}".format(vm_id=vm_id)], stderr=subprocess.STDOUT)
