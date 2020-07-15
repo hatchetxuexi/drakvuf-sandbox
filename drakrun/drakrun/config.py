@@ -3,8 +3,8 @@ import os
 from dataclasses import dataclass, asdict
 from typing import Optional
 
-ETC_DIR = "/etc/drakrun"
-LIB_DIR = "/var/lib/drakrun"
+ETC_DIR = os.getenv("DRAKRUN_ETC_DIR") or "/etc/drakrun"
+LIB_DIR = os.getenv("DRAKRUN_LIB_DIR") or "/var/lib/drakrun"
 
 @dataclass
 class InstallInfo:
