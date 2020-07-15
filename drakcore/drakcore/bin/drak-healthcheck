@@ -20,7 +20,6 @@ def get_install_info():
     except OSError:
         return None
 
-
 def print_status(name, is_ok):
     if is_ok:
         status = colorama.Fore.GREEN + "OK"
@@ -50,8 +49,9 @@ def main():
         return
 
     print()
+    max_vms = install_info["max_vms"]
     print("Checking worker status...")
-    for vm in range(install_info.max_vms):
+    for vm in range(max_vms):
         service = f"drakrun@{vm + 1}.service"
         info = get_service_info(service)
         print_status(service, service_runnning(info))
