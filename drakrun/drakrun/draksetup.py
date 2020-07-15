@@ -15,7 +15,7 @@ from shutil import copyfile
 
 import requests
 from drakrun.drakpdb import fetch_pdb, make_pdb_profile, dll_file_list, pdb_guid
-from drakrun.config import ETC_DIR, LIB_DIR, InstallInfo, install_info
+from drakrun.config import ETC_DIR, LIB_DIR, InstallInfo, is_installed
 from requests import RequestException
 
 logging.basicConfig(level=logging.DEBUG,
@@ -103,7 +103,7 @@ def install(storage_backend, disk_size, iso_path, zfs_tank_name, max_vms, unatte
 
         iso_sha256 = sha256_hash.hexdigest()
     
-    install_info = InstallInfo(
+    InstallInfo(
         storage_backend=storage_backend,
         disk_size=disk_size,
         iso_path=os.path.abspath(iso_path),
@@ -111,10 +111,8 @@ def install(storage_backend, disk_size, iso_path, zfs_tank_name, max_vms, unatte
         max_vms=max_vms,
         enable_unattended=unattended_xml is not None,
         iso_sha256=iso_sha256
-    )
+    ).save()
 
-    with open(os.path.join(ETC_DIR, "install.json"), "w") as f:
-        f.write(json.dumps(install_info.as_dict(), indent=4))
 
     logging.info("Checking xen-detect...")
     proc = subprocess.run('xen-detect -N', shell=True)
@@ -425,12 +423,9 @@ def generate_profiles(no_report=False, generate_usermode=True):
 
 
 def reenable_services():
-    if not os.path.exists(os.path.join(ETC_DIR, "install.json")):
+    if not is_installed():
         logging.info("Not re-enabling services, install.json is missing.")
         return
-
-    with open(os.path.join(ETC_DIR, "install.json"), 'r') as f:
-        install_info = json.loads(f.read())
 
     subprocess.check_output('systemctl disable \'drakrun@*\'', shell=True, stderr=subprocess.STDOUT)
     subprocess.check_output('systemctl stop \'drakrun@*\'', shell=True, stderr=subprocess.STDOUT)

@@ -18,14 +18,19 @@ class InstallInfo:
 
     def as_dict(self):
         return asdict(self)
-    
-def reload_install_info():
-    global install_info
-    try:
-        with open(os.path.join(ETC_DIR, "install.json"), "rb") as f:
-            install_dict = json.loads(f.read())
-            install_info = InstallInfo(**install_dict)
-    except FileNotFoundError:
-        install_info = None
 
-reload_install_info()
+    @classmethod
+    def load() -> Optional[InstallInfo]:
+        try:
+            with open(os.path.join(ETC_DIR, "install.json"), "r") as f:
+                install_dict = json.loads(f.read())
+                return InstallInfo(**install_dict)
+        except FileNotFoundError:
+            return None
+
+    def save(self):
+        with open(os.path.join(ETC_DIR, "install.json"), "w") as f:
+            f.write(json.dumps(self.as_dict(), indent=4))
+
+def is_installed() -> bool:
+    return os.path.exists(os.path.join(ETC_DIR, "install.json"))
