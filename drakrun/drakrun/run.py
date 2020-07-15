@@ -6,9 +6,10 @@ import subprocess
 import time
 import json
 
-from drakrun.config import install_info, LIB_DIR
+from drakrun.config import LIB_DIR, InstallInfo
 
 def run_vm(vm_id):
+    install_info = InstallInfo.load()
 
     try:
         subprocess.check_output(["xl", "destroy", "vm-{vm_id}".format(vm_id=vm_id)], stderr=subprocess.STDOUT)
