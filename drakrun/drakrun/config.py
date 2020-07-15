@@ -33,4 +33,4 @@ class InstallInfo:
             f.write(json.dumps(self.as_dict(), indent=4))
 
 def is_installed() -> bool:
-    return os.path.exists(os.path.join(ETC_DIR, "install.json"))
+    return InstallInfo.load() is not None
