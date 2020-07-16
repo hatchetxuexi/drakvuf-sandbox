@@ -104,7 +104,7 @@ def install(storage_backend, disk_size, iso_path, zfs_tank_name, max_vms, unatte
 
         iso_sha256 = sha256_hash.hexdigest()
 
-    InstallInfo(
+    install_info = InstallInfo(
         storage_backend=storage_backend,
         disk_size=disk_size,
         iso_path=os.path.abspath(iso_path),
@@ -339,6 +339,7 @@ def generate_profiles(no_report=False, generate_usermode=True):
     if os.path.exists(os.path.join(ETC_DIR, "no_usage_reports")):
         no_report = True
 
+    intall_info = InstallInfo.load()
     max_vms = install_info.max_vms
     output = subprocess.check_output(['vmi-win-guid', 'name', 'vm-0'], timeout=30).decode('utf-8')
 
