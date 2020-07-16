@@ -22,6 +22,7 @@ logging.basicConfig(level=logging.DEBUG,
                     format='[%(asctime)s][%(levelname)s] %(message)s',
                     handlers=[logging.StreamHandler()])
 
+
 def find_default_interface():
     routes = subprocess.check_output('ip route show default', shell=True, stderr=subprocess.STDOUT) \
         .decode('ascii').strip().split('\n')
@@ -102,7 +103,7 @@ def install(storage_backend, disk_size, iso_path, zfs_tank_name, max_vms, unatte
             sha256_hash.update(byte_block)
 
         iso_sha256 = sha256_hash.hexdigest()
-    
+
     InstallInfo(
         storage_backend=storage_backend,
         disk_size=disk_size,
@@ -112,7 +113,6 @@ def install(storage_backend, disk_size, iso_path, zfs_tank_name, max_vms, unatte
         enable_unattended=unattended_xml is not None,
         iso_sha256=iso_sha256
     ).save()
-
 
     logging.info("Checking xen-detect...")
     proc = subprocess.run('xen-detect -N', shell=True)
