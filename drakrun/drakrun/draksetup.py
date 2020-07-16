@@ -248,7 +248,7 @@ def create_rekall_profiles(install_info: InstallInfo):
 
         if install_info.storage_backend == "zfs":
             # workaround for not being able to mount a snapshot
-            base_snap = shlex.quote(os.path.join(install_info.zfs_tank_name 'vm-0@booted'))
+            base_snap = shlex.quote(os.path.join(install_info.zfs_tank_name, 'vm-0@booted'))
             tmp_snap = shlex.quote(os.path.join(install_info.zfs_tank_name, 'tmp'))
             try:
                 subprocess.check_output(f'zfs clone {base_snap} {tmp_snap}', shell=True)
