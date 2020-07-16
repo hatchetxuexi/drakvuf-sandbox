@@ -6,6 +6,7 @@ from typing import Optional
 ETC_DIR = os.getenv("DRAKRUN_ETC_DIR") or "/etc/drakrun"
 LIB_DIR = os.getenv("DRAKRUN_LIB_DIR") or "/var/lib/drakrun"
 
+
 @dataclass
 class InstallInfo:
     storage_backend: str

@@ -25,6 +25,7 @@ from drakrun.config import LIB_DIR, ETC_DIR
 
 INSTANCE_ID = None
 
+
 def get_domid_from_instance_id(instance_id: str) -> int:
     output = subprocess.check_output(["xl", "domid", f"vm-{instance_id}"])
     return int(output.decode('utf-8').strip())

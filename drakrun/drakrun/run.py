@@ -6,7 +6,8 @@ import subprocess
 import time
 import json
 
-from drakrun.config import LIB_DIR, InstallInfo
+from drakrun.config import ETC_DIR, LIB_DIR, InstallInfo
+
 
 def run_vm(vm_id):
     install_info = InstallInfo.load()
