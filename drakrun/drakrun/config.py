@@ -16,7 +16,7 @@ class InstallInfo:
     iso_path: str
     max_vms: int
     enable_unattended: bool
-    iso_sha256: str
+    iso_sha256: Optional[str]
 
     def as_dict(self):
         return asdict(self)
