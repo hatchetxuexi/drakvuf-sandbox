@@ -21,14 +21,14 @@ class InstallInfo:
         return asdict(self)
 
     @staticmethod
-    def load(cls) -> InstallInfo:
+    def load() -> 'InstallInfo':
         """ Reads and parses install.json file """
         with open(os.path.join(ETC_DIR, "install.json"), "r") as f:
             install_dict = json.loads(f.read())
             return InstallInfo(**install_dict)
 
     @classmethod
-    def try_load(cls) -> Optional[InstallInfo]:
+    def try_load(cls) -> Optional['InstallInfo']:
         """ Tries to load install.json of fails with None """
         try:
             return cls.load()
@@ -36,9 +36,10 @@ class InstallInfo:
             return None
 
     def save(self):
-        """ Serializes object and writes to install.json """
+        """ Serializes self and writes to install.json """
         with open(os.path.join(ETC_DIR, "install.json"), "w") as f:
             f.write(json.dumps(self.as_dict(), indent=4))
+
 
 def is_installed() -> bool:
     """ Returns true when install.json is present """
