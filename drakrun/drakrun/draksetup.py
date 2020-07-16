@@ -424,7 +424,8 @@ def generate_profiles(no_report=False, generate_usermode=True):
 
 
 def reenable_services():
-    if not is_installed():
+    install_info = InstallInfo.try_load()
+    if not install_info:
         logging.info("Not re-enabling services, install.json is missing.")
         return
 
