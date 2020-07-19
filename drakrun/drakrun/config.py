@@ -11,12 +11,12 @@ LIB_DIR = os.getenv("DRAKRUN_LIB_DIR") or "/var/lib/drakrun"
 @dataclass
 class InstallInfo:
     storage_backend: str
-    zfs_tank_name: Optional[str]
+    zfs_tank_name: Optional[str] = None
     disk_size: str
     iso_path: str
     max_vms: int
     enable_unattended: bool
-    iso_sha256: Optional[str]
+    iso_sha256: Optional[str] = None
 
     def as_dict(self):
         return asdict(self)
